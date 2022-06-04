@@ -29,9 +29,10 @@ if __name__ == '__main__':
     UPSCALE_FACTOR = opt.upscale_factor
     NUM_EPOCHS = opt.num_epochs
     
-    train_set = TrainDatasetFromFolder('data/DIV2K_train_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR)
-    val_set = ValDatasetFromFolder('data/DIV2K_valid_HR', upscale_factor=UPSCALE_FACTOR)
-    train_loader = DataLoader(dataset=train_set, num_workers=4, batch_size=64, shuffle=True)
+    train_set = TrainDatasetFromFolder('data/train', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR)
+    val_set = ValDatasetFromFolder('data/valid', upscale_factor=UPSCALE_FACTOR)
+    train_loader = DataLoader(dataset=train_set, num_workers=4, batch_size=1, shuffle=True)
+    #batch_size was 1
     val_loader = DataLoader(dataset=val_set, num_workers=4, batch_size=1, shuffle=False)
     
     netG = Generator(UPSCALE_FACTOR)
@@ -57,58 +58,66 @@ if __name__ == '__main__':
     
         netG.train()
         netD.train()
-        for data, target in train_bar:
-            g_update_first = True
-            batch_size = data.size(0)
-            running_results['batch_sizes'] += batch_size
-    
-            ############################
-            # (1) Update D network: maximize D(x)-1-D(G(z))
-            ###########################
-            real_img = Variable(target)
-            if torch.cuda.is_available():
-                real_img = real_img.cuda()
-            z = Variable(data)
-            if torch.cuda.is_available():
-                z = z.cuda()
-            fake_img = netG(z)
-    
-            netD.zero_grad()
-            real_out = netD(real_img).mean()
-            fake_out = netD(fake_img).mean()
-            d_loss = 1 - real_out + fake_out
-            d_loss.backward(retain_graph=True)
-            optimizerD.step()
-    
-            ############################
-            # (2) Update G network: minimize 1-D(G(z)) + Perception Loss + Image Loss + TV Loss
-            ###########################
-            netG.zero_grad()
-            ## The two lines below are added to prevent runetime error in Google Colab ##
-            fake_img = netG(z)
-            fake_out = netD(fake_img).mean()
-            ##
-            g_loss = generator_criterion(fake_out, fake_img, real_img)
-            g_loss.backward()
-            
-            fake_img = netG(z)
-            fake_out = netD(fake_img).mean()
-            
-            
-            optimizerG.step()
+        testindex = 0
+        try:
+            for data, target in train_bar:
+                print(testindex)
+                testindex += 1
+                g_update_first = True
+                batch_size = data.size(0)
+                running_results['batch_sizes'] += batch_size
 
-            # loss for current batch before optimization 
-            running_results['g_loss'] += g_loss.item() * batch_size
-            running_results['d_loss'] += d_loss.item() * batch_size
-            running_results['d_score'] += real_out.item() * batch_size
-            running_results['g_score'] += fake_out.item() * batch_size
-    
-            train_bar.set_description(desc='[%d/%d] Loss_D: %.4f Loss_G: %.4f D(x): %.4f D(G(z)): %.4f' % (
-                epoch, NUM_EPOCHS, running_results['d_loss'] / running_results['batch_sizes'],
-                running_results['g_loss'] / running_results['batch_sizes'],
-                running_results['d_score'] / running_results['batch_sizes'],
-                running_results['g_score'] / running_results['batch_sizes']))
-    
+                ############################
+                # (1) Update D network: maximize D(x)-1-D(G(z))
+                ###########################
+                real_img = Variable(target)
+                if torch.cuda.is_available():
+                    real_img = real_img.cuda()
+                z = Variable(data)
+                if torch.cuda.is_available():
+                    z = z.cuda()
+                fake_img = netG(z)
+
+                netD.zero_grad()
+                real_out = netD(real_img).mean()
+                fake_out = netD(fake_img).mean()
+                d_loss = 1 - real_out + fake_out
+                d_loss.backward(retain_graph=True)
+                optimizerD.step()
+
+                ############################
+                # (2) Update G network: minimize 1-D(G(z)) + Perception Loss + Image Loss + TV Loss
+                ###########################
+                netG.zero_grad()
+                ## The two lines below are added to prevent runetime error in Google Colab ##
+                fake_img = netG(z)
+                fake_out = netD(fake_img).mean()
+                ##
+                g_loss = generator_criterion(fake_out, fake_img, real_img)
+                g_loss.backward()
+
+                fake_img = netG(z)
+                fake_out = netD(fake_img).mean()
+
+
+                optimizerG.step()
+
+                # loss for current batch before optimization
+                running_results['g_loss'] += g_loss.item() * batch_size
+                running_results['d_loss'] += d_loss.item() * batch_size
+                running_results['d_score'] += real_out.item() * batch_size
+                running_results['g_score'] += fake_out.item() * batch_size
+
+                train_bar.set_description(desc='[%d/%d] Loss_D: %.4f Loss_G: %.4f D(x): %.4f D(G(z)): %.4f' % (
+                    epoch, NUM_EPOCHS, running_results['d_loss'] / running_results['batch_sizes'],
+                    running_results['g_loss'] / running_results['batch_sizes'],
+                    running_results['d_score'] / running_results['batch_sizes'],
+                    running_results['g_score'] / running_results['batch_sizes']))
+        except SyntaxError:
+            # PIL can raise syntax error on broken PNG files
+            # * File "PIL/PngImagePlugin.py", line 119, in read
+            # * raise SyntaxError("broken PNG file (chunk %s)" % repr(cid))
+            raise IOError
         netG.eval()
         out_path = 'training_results/SRF_' + str(UPSCALE_FACTOR) + '/'
         if not os.path.exists(out_path):
